@@ -10,8 +10,60 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 st.set_page_config(page_title="كاشف الاحتيال المالي", page_icon="🔍", layout="wide")
-st.markdown("""<style>.stApp { direction: rtl; } .stMarkdown, .stAlert, label, .stTabs, .stMetric { text-align: right; }</style>""", unsafe_allow_html=True)
-
+st.markdown("""
+<style>
+/* اخفاء قايمة ستريمليت */
+#MainMenu, header, footer {visibility: hidden;}
+.stApp {background: #f8f9fb;}
+/* كارت زي التطبيق */
+.app-card {
+    background: white;
+    padding: 20px;
+    border-radius: 20px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+    margin-bottom: 16px;
+    border: 1px solid #f0f0f0;
+}
+.top-bar {
+    background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+    color: white;
+    padding: 18px 20px;
+    border-radius: 0 0 25px 25px;
+    margin: -80px -40px 20px -40px;
+    text-align: center;
+}
+.bottom-nav {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: white;
+    border-top: 1px solid #eee;
+    display: flex;
+    justify-content: space-around;
+    padding: 10px 0 20px 0;
+    z-index: 999;
+    border-radius: 20px 20px 0 0;
+}
+.stButton>button {
+    width: 100%;
+    border-radius: 14px !important;
+    height: 50px;
+    font-weight: bold;
+    background: #6c5ce7 !important;
+    color: white !important;
+    border: none !important;
+}
+div[data-testid="stMetric"] {
+    background: white;
+    padding: 15px;
+    border-radius: 16px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+}
+</style>
+<div class="top-bar">
+    <h2 style="margin:0">🔍 كاشف الاحتيال</h2>
+    <p style="margin:4px 0 0 0; opacity:0.9; font-size:13px">الذكاء الاصطناعي للمراجعة المالية</p>
+</div>
+""", unsafe_allow_html=True)
 DB_URL = os.getenv("DATABASE_URL", "sqlite:///fraud.db")
 
 @st.cache_resource
