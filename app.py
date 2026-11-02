@@ -157,20 +157,22 @@ def get_report(rid: int):
 def show_report(rid: int, prefix="app"):
     rep = get_report(rid)
     if rep is None:
-        st.error("التقرير غير موجود"); return
+        st.error("التقرير غير موجود")
+        return
     st.subheader(f"تقرير #{rep['id']} — {rep['filename']}")
     c1, c2, c3 = st.columns(3)
     c1.metric("عدد السطور", f"{rep['rows']:,}")
-    c2.metric("مشبوهة (درجة ≥ 40)", f"{rep['flagged']:,}")
+    c2.metric("مشبوهة", f"{rep['flagged']:,}")
     c3.metric("نسبة الشبهة", f"{rep['flagged'] / max(rep['rows'], 1):.1%}")
-    if rep["note"]: st.warning(rep["note"])
+    if rep["note"]:
+        st.warning(rep["note"])
     items = rep["items"]
-   only_flagged = st.checkbox("عرض المشبوه فقط (درجة ≥ 40)", key=f"{prefix}_flagged_{rid}")
+    only_flagged = st.checkbox("عرض المشبوه فقط (درجة ≥ 40)", key=f"{prefix}_flagged_{rid}")
     view = items[items["درجة الخطر"] >= 40] if only_flagged else items
     st.dataframe(view, use_container_width=True, hide_index=True)
     buf = io.BytesIO()
     items.to_excel(buf, index=False)
-   st.download_button("⬇️ تحميل التقرير (Excel)", buf.getvalue(), file_name=f"report_{rid}.xlsx", key=f"{prefix}_dl_{rid}")
+    st.download_button("⬇️ تحميل التقرير (Excel)", buf.getvalue(), file_name=f"report_{rid}.xlsx", key=f"{prefix}_dl_{rid}")
 st.title("🔍 كاشف الاحتيال المالي")
 tab_upload, tab_reports = st.tabs(["📤 رفع وتحليل ملف", "📚 التقارير السابقة"])
 with tab_upload:
