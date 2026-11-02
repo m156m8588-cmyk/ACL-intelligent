@@ -1,1 +1,6 @@
 streamlit
+pandas
+pdfplumber
+scipy
+scikit-learn
+openpyxl
