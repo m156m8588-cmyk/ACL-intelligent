@@ -1,0 +1,9 @@
+{
+  "name": "كاشف الاحتيال المالي",
+  "short_name": "كاشف الاحتيال",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#6c5ce7",
+  "theme_color": "#6c5ce7",
+  "icons": [{"src": "https://cdn-icons-png.flaticon.com/512/3135/3135673.png", "sizes": "512x512", "type": "image/png"}]
+}
