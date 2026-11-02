@@ -165,7 +165,7 @@ def show_report(rid: int):
     c3.metric("نسبة الشبهة", f"{rep['flagged'] / max(rep['rows'], 1):.1%}")
     if rep["note"]: st.warning(rep["note"])
     items = rep["items"]
-    only_flagged = st.checkbox("عرض المشبوه فقط (درجة ≥ 40)", key=f"flagged_{rid}")
+    only_flagged = st.checkbox("عرض المشبوه فقط (درجة ≥ 40)")
     view = items[items["درجة الخطر"] >= 40] if only_flagged else items
     st.dataframe(view, use_container_width=True, hide_index=True)
     buf = io.BytesIO()
