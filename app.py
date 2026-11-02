@@ -154,7 +154,7 @@ def get_report(rid: int):
         items = sorted(r.items, key=lambda i: -i.score)[:500]
         return {"id": r.id, "filename": r.filename, "rows": r.rows, "flagged": r.flagged, "note": r.note, "items": pd.DataFrame([{"السطر": i.row_no, "التاريخ": i.date, "المورد": i.vendor, "الفاتورة": i.invoice, "المبلغ": i.amount, "درجة الخطر": i.score, "الأسباب": i.reasons} for i in items])}
 
-def show_report(rid: int):
+def show_report(rid: int, prefix="app"):
     rep = get_report(rid)
     if rep is None:
         st.error("التقرير غير موجود"); return
@@ -165,13 +165,12 @@ def show_report(rid: int):
     c3.metric("نسبة الشبهة", f"{rep['flagged'] / max(rep['rows'], 1):.1%}")
     if rep["note"]: st.warning(rep["note"])
     items = rep["items"]
-    only_flagged = st.checkbox("عرض المشبوه فقط (درجة ≥ 40)")
+   only_flagged = st.checkbox("عرض المشبوه فقط (درجة ≥ 40)", key=f"{prefix}_flagged_{rid}")
     view = items[items["درجة الخطر"] >= 40] if only_flagged else items
     st.dataframe(view, use_container_width=True, hide_index=True)
     buf = io.BytesIO()
     items.to_excel(buf, index=False)
-    st.download_button("⬇️ تحميل التقرير (Excel)", buf.getvalue(), file_name=f"report_{rid}.xlsx")
-
+   st.download_button("⬇️ تحميل التقرير (Excel)", buf.getvalue(), file_name=f"report_{rid}.xlsx", key=f"{prefix}_dl_{rid}")
 st.title("🔍 كاشف الاحتيال المالي")
 tab_upload, tab_reports = st.tabs(["📤 رفع وتحليل ملف", "📚 التقارير السابقة"])
 with tab_upload:
@@ -191,7 +190,7 @@ with tab_upload:
                 st.error(f"حدث خطأ: {e}")
     if "last_report" in st.session_state:
         st.success("تم التحليل وحفظ التقرير ✅")
-        show_report(st.session_state["last_report"])
+        show_report(st.session_state["last_report"], prefix="upload")
 with tab_reports:
     reports = list_reports()
     if not reports:
@@ -199,4 +198,4 @@ with tab_reports:
     else:
         st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
         chosen = st.selectbox("اختر تقريرا لعرضه", options=[r["id"] for r in reports], format_func=lambda i: next(f"#{r['id']} — {r['filename']}" for r in reports if r["id"] == i))
-        show_report(chosen)
+        show_report(chosen, prefix="reports")
