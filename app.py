@@ -64,14 +64,41 @@ div[data-testid="stMetric"] {
     <p style="margin:4px 0 0 0; opacity:0.9; font-size:13px">الذكاء الاصطناعي للمراجعة المالية</p>
 </div>
 """, unsafe_allow_html=True)
-DB_URL = os.getenv("DATABASE_URL", "sqlite:///fraud.db")
+def _db_url() -> str:
+    # الأولوية: متغير بيئة DATABASE_URL، بعدين Streamlit secrets، وآخر حاجة SQLite محلي
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        try:
+            url = st.secrets["DATABASE_URL"]
+        except Exception:
+            url = "sqlite:///fraud.db"
+    url = url.strip()
+    if url.startswith("postgres://"):  # SQLAlchemy مش بيقبل postgres://
+        url = "postgresql://" + url[len("postgres://"):]
+    return url
+
+DB_URL = _db_url()
+IS_SQLITE = DB_URL.startswith("sqlite")
 
 @st.cache_resource
 def get_engine():
-    kwargs = {"connect_args": {"check_same_thread": False}} if DB_URL.startswith("sqlite") else {}
-    return create_engine(DB_URL, **kwargs)
+    if IS_SQLITE:
+        return create_engine(DB_URL, connect_args={"check_same_thread": False})
+    # Supabase (Postgres): اتصال مُجمّع مع فحص الاتصال قبل الاستخدام
+    return create_engine(DB_URL, pool_pre_ping=True, pool_size=5, max_overflow=2, pool_recycle=300)
 
-engine = get_engine()
+def _db_fail(e: Exception):
+    st.error(
+        f"تعذر الاتصال بقاعدة البيانات ({type(e).__name__}). "
+        "راجع DATABASE_URL: استخدم رابط Session pooler من Supabase، "
+        "وتأكد من تشفير الرموز الخاصة في كلمة السر، ومن إضافة psycopg2-binary في requirements.txt."
+    )
+    st.stop()
+
+try:
+    engine = get_engine()
+except Exception as e:
+    _db_fail(e)
 Session = sessionmaker(bind=engine)
 Base = declarative_base()
 
@@ -97,7 +124,10 @@ class Item(Base):
     score = Column(Float)
     reasons = Column(Text)
 
-Base.metadata.create_all(engine)
+try:
+    Base.metadata.create_all(engine)
+except Exception as e:
+    _db_fail(e)
 
 class UserError(Exception): pass
 
@@ -256,6 +286,7 @@ def show_report(rid: int, prefix: str = ""):
     st.download_button("⬇️ تحميل التقرير (Excel)", buf.getvalue(), file_name=f"report_{rid}.xlsx", key=f"{prefix}_dl_{rid}")
 
 st.title("🔍 كاشف الاحتيال المالي")
+st.caption("🗄️ قاعدة البيانات: " + ("SQLite محلي" if IS_SQLITE else "Supabase (PostgreSQL)"))
 tab_upload, tab_reports = st.tabs(["📤 رفع وتحليل ملف", "📚 التقارير السابقة"])
 with tab_upload:
     file = st.file_uploader("ارفع ملف Excel أو CSV أو PDF", type=["xlsx", "xls", "csv", "pdf"])
