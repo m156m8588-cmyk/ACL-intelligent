@@ -1,8 +1,10 @@
 streamlit
-psycopg2-binary
 pandas
-pdfplumber
+numpy
 scipy
 scikit-learn
-openpyxl
 sqlalchemy
+psycopg2-binary
+pdfplumber
+openpyxl
+xlrd
