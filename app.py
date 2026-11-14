@@ -164,16 +164,22 @@ def analyze(df: pd.DataFrame):
     flag(df["date_parsed"].dt.weekday.isin(WEEKEND).values, 10, "عملية في يوم عطلة")
     flag(a <= 0, 20, "مبلغ صفر أو سالب")
     note = ""
-    digits = pd.Series(np.abs(a)).astype(str).str.lstrip("0.").str[0]
-    digits = pd.to_numeric(digits, errors="coerce")
-    if n >= 100:
-        obs = np.array([(digits == d).sum() for d in range(1, 10)], dtype=float)
-        exp = np.log10(1 + 1 / np.arange(1, 10)) * obs.sum()
-        p = chisquare(obs, exp).pvalue
-        if p < 0.01:
-            note = f"توزيع الأرقام الأولى لا يطابق قانون بنفورد (p={p:.4f})"
-            over = [d for d in range(1, 10) if obs[d - 1] / obs.sum() - exp[d - 1] / obs.sum() > 0.05]
-            flag(digits.isin(over).values, 10, "رقم أول مبالغ في تكراره (بنفورد)")
+    # أول رقم معنوي للمبالغ الموجبة فقط (الصفر والسالب مالهمش معنى في بنفورد)
+    digits = pd.Series([int(f"{x:.10e}"[0]) if x > 0 else np.nan for x in a])
+    valid = digits.dropna()
+    m = len(valid)
+    if m >= 100:
+        obs = np.array([(valid == d).sum() for d in range(1, 10)], dtype=float)
+        exp_p = np.log10(1 + 1 / np.arange(1, 10))
+        obs_p = obs / m
+        p = chisquare(obs, exp_p * m).pvalue
+        mad = float(np.abs(obs_p - exp_p).mean())
+        # مع الداتا الكبيرة كاي تربيع بيرفض أي فرق صغير، فبنشترط كمان MAD >= 0.012
+        if p < 0.01 and mad >= 0.012:
+            note = f"توزيع الأرقام الأولى لا يطابق قانون بنفورد (p={p:.4f}، MAD={mad:.4f})"
+            over = [d for d in range(1, 10) if obs_p[d - 1] - exp_p[d - 1] > 0.03]
+            if over:
+                flag(digits.isin(over).values, 10, "رقم أول مبالغ في تكراره (بنفورد)")
     if n >= 20:
         X = np.log1p(np.abs(a)).reshape(-1, 1)
         pred = IsolationForest(contamination=0.05, random_state=42).fit_predict(X)
@@ -196,12 +202,30 @@ def list_reports(limit: int = 50):
         rs = s.query(Report).order_by(Report.id.desc()).limit(limit).all()
         return [{"id": r.id, "filename": r.filename, "created": r.created, "rows": r.rows, "flagged": r.flagged} for r in rs]
 
+def extra_checks(rows):
+    cols = ["السطر", "التاريخ", "المورد", "الفاتورة", "المبلغ"]
+    df = pd.DataFrame([{"السطر": i.row_no, "التاريخ": i.date, "المورد": i.vendor, "الفاتورة": i.invoice, "المبلغ": i.amount} for i in rows], columns=cols)
+    if df.empty:
+        return df, [], df
+    inv = df["الفاتورة"].astype(str).str.strip()
+    has_inv = ~inv.str.lower().isin(["none", "nan", ""])
+    withinv = df[has_inv]
+    dups = withinv[withinv.duplicated(["المورد", "الفاتورة"], keep=False)].sort_values(["المورد", "الفاتورة"])
+    nums = pd.to_numeric(inv[has_inv].str.extract(r"(\d+)\D*$")[0], errors="coerce").dropna().astype(int)
+    gaps = []
+    if len(nums) >= 2 and nums.max() - nums.min() <= 100000:
+        gaps = sorted(set(range(int(nums.min()), int(nums.max()) + 1)) - set(nums))
+    amt = df["المبلغ"].abs()
+    rounds = df[(amt >= 1000) & (amt % 1000 == 0)]
+    return dups, gaps, rounds
+
 def get_report(rid: int):
     with Session() as s:
         r = s.get(Report, rid)
         if not r: return None
+        dups, gaps, rounds = extra_checks(r.items)
         items = sorted(r.items, key=lambda i: -i.score)[:500]
-        return {"id": r.id, "filename": r.filename, "rows": r.rows, "flagged": r.flagged, "note": r.note, "items": pd.DataFrame([{"السطر": i.row_no, "التاريخ": i.date, "المورد": i.vendor, "الفاتورة": i.invoice, "المبلغ": i.amount, "درجة الخطر": i.score, "الأسباب": i.reasons} for i in items])}
+        return {"dups": dups, "gaps": gaps, "rounds": rounds, "id": r.id, "filename": r.filename, "rows": r.rows, "flagged": r.flagged, "note": r.note, "items": pd.DataFrame([{"السطر": i.row_no, "التاريخ": i.date, "المورد": i.vendor, "الفاتورة": i.invoice, "المبلغ": i.amount, "درجة الخطر": i.score, "الأسباب": i.reasons} for i in items])}
 
 def show_report(rid: int, prefix: str = ""):
     rep = get_report(rid)
@@ -212,14 +236,24 @@ def show_report(rid: int, prefix: str = ""):
     c1.metric("عدد السطور", f"{rep['rows']:,}")
     c2.metric("مشبوهة (درجة ≥ 40)", f"{rep['flagged']:,}")
     c3.metric("نسبة الشبهة", f"{rep['flagged'] / max(rep['rows'], 1):.1%}")
+    d1, d2, d3 = st.columns(3)
+    d1.metric("🔁 فواتير متكررة", f"{len(rep['dups']):,}")
+    d2.metric("❓ أرقام فواتير ناقصة", f"{len(rep['gaps']):,}")
+    d3.metric("🔢 مبالغ مقفولة (000)", f"{len(rep['rounds']):,}")
+    with st.expander("تفاصيل الفواتير المتكررة"):
+        st.dataframe(rep["dups"], use_container_width=True, hide_index=True)
+    with st.expander("تفاصيل أرقام الفواتير الناقصة"):
+        st.write(rep["gaps"][:500] if rep["gaps"] else "لا توجد أرقام ناقصة")
+    with st.expander("تفاصيل المبالغ المقفولة"):
+        st.dataframe(rep["rounds"], use_container_width=True, hide_index=True)
     if rep["note"]: st.warning(rep["note"])
     items = rep["items"]
-    only_flagged = st.checkbox(f"عرض المشبوه فقط (درجة ≥ 40)", key=f"{prefix}_flagged_{rid}_{id(rep)}")
+    only_flagged = st.checkbox(f"عرض المشبوه فقط (درجة ≥ 40)", key=f"{prefix}_flagged_{rid}")
     view = items[items["درجة الخطر"] >= 40] if only_flagged else items
     st.dataframe(view, use_container_width=True, hide_index=True)
     buf = io.BytesIO()
     items.to_excel(buf, index=False)
-    st.download_button("⬇️ تحميل التقرير (Excel)", buf.getvalue(), file_name=f"report_{rid}.xlsx", key=f"{prefix}_dl_{rid}_{id(rep)}")
+    st.download_button("⬇️ تحميل التقرير (Excel)", buf.getvalue(), file_name=f"report_{rid}.xlsx", key=f"{prefix}_dl_{rid}")
 
 st.title("🔍 كاشف الاحتيال المالي")
 tab_upload, tab_reports = st.tabs(["📤 رفع وتحليل ملف", "📚 التقارير السابقة"])
