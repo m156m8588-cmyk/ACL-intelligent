@@ -1,4 +1,4 @@
-import io, os
+import io, os, re, hmac, hashlib
 from datetime import datetime
 import numpy as np
 import pandas as pd
@@ -6,7 +6,7 @@ import pdfplumber
 import streamlit as st
 from scipy.stats import chisquare
 from sklearn.ensemble import IsolationForest
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Text
+from sqlalchemy import create_engine, inspect, text, Column, Integer, String, Float, DateTime, ForeignKey, Text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 st.set_page_config(page_title="كاشف الاحتيال المالي", page_icon="🔍", layout="wide")
@@ -15,7 +15,6 @@ st.markdown("""
 /* اخفاء قايمة ستريمليت */
 #MainMenu, header, footer {visibility: hidden;}
 .stApp {background: #f8f9fb;}
-/* كارت زي التطبيق */
 .app-card {
     background: white;
     padding: 20px;
@@ -32,18 +31,7 @@ st.markdown("""
     margin: -80px -40px 20px -40px;
     text-align: center;
 }
-.bottom-nav {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    background: white;
-    border-top: 1px solid #eee;
-    display: flex;
-    justify-content: space-around;
-    padding: 10px 0 20px 0;
-    z-index: 999;
-    border-radius: 20px 20px 0 0;
-}
-.stButton>button {
+.stButton>button, div[data-testid="stFormSubmitButton"]>button {
     width: 100%;
     border-radius: 14px !important;
     height: 50px;
@@ -64,6 +52,8 @@ div[data-testid="stMetric"] {
     <p style="margin:4px 0 0 0; opacity:0.9; font-size:13px">الذكاء الاصطناعي للمراجعة المالية</p>
 </div>
 """, unsafe_allow_html=True)
+
+# ───────────────────────── قاعدة البيانات ─────────────────────────
 def _db_url() -> str:
     # الأولوية: متغير بيئة DATABASE_URL، بعدين Streamlit secrets، وآخر حاجة SQLite محلي
     url = os.getenv("DATABASE_URL")
@@ -102,9 +92,17 @@ except Exception as e:
 Session = sessionmaker(bind=engine)
 Base = declarative_base()
 
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(300), nullable=False)
+    created = Column(DateTime, default=datetime.utcnow)
+
 class Report(Base):
     __tablename__ = "reports"
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
     filename = Column(String(255))
     created = Column(DateTime, default=datetime.utcnow)
     rows = Column(Integer)
@@ -124,13 +122,87 @@ class Item(Base):
     score = Column(Float)
     reasons = Column(Text)
 
+def _migrate():
+    # لو جدول reports كان موجود من قبل من غير user_id، نضيف العمود
+    cols = [c["name"] for c in inspect(engine).get_columns("reports")]
+    if "user_id" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE reports ADD COLUMN user_id INTEGER REFERENCES users(id)"))
+
 try:
     Base.metadata.create_all(engine)
+    _migrate()
 except Exception as e:
     _db_fail(e)
 
 class UserError(Exception): pass
 
+# ───────────────────────── الحسابات ─────────────────────────
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+PBKDF2_ITERS = 200_000
+
+def hash_password(pw: str) -> str:
+    salt = os.urandom(16)
+    h = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, PBKDF2_ITERS)
+    return f"{salt.hex()}${h.hex()}"
+
+def verify_password(pw: str, stored: str) -> bool:
+    try:
+        salt_hex, h_hex = stored.split("$")
+        h = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt_hex), PBKDF2_ITERS)
+        return hmac.compare_digest(h.hex(), h_hex)
+    except Exception:
+        return False
+
+def register_user(email: str, pw: str, pw2: str) -> dict:
+    email = email.strip().lower()
+    if not EMAIL_RE.match(email):
+        raise UserError("البريد الإلكتروني غير صحيح")
+    if len(pw) < 8:
+        raise UserError("كلمة السر لازم تكون 8 حروف على الأقل")
+    if pw != pw2:
+        raise UserError("كلمتا السر غير متطابقتين")
+    with Session() as s:
+        if s.query(User).filter_by(email=email).first():
+            raise UserError("هذا البريد مسجل بالفعل")
+        u = User(email=email, password_hash=hash_password(pw))
+        s.add(u)
+        s.commit()
+        return {"id": u.id, "email": u.email}
+
+def login_user(email: str, pw: str) -> dict:
+    email = email.strip().lower()
+    with Session() as s:
+        u = s.query(User).filter_by(email=email).first()
+        if not u or not verify_password(pw, u.password_hash):
+            raise UserError("البريد أو كلمة السر غير صحيحة")
+        return {"id": u.id, "email": u.email}
+
+def auth_screen():
+    t_login, t_signup = st.tabs(["🔑 تسجيل الدخول", "🆕 إنشاء حساب"])
+    with t_login:
+        with st.form("login_form"):
+            email = st.text_input("البريد الإلكتروني", key="li_email")
+            pw = st.text_input("كلمة السر", type="password", key="li_pw")
+            if st.form_submit_button("دخول"):
+                try:
+                    st.session_state["user"] = login_user(email, pw)
+                    st.rerun()
+                except UserError as e:
+                    st.error(str(e))
+    with t_signup:
+        with st.form("signup_form"):
+            email = st.text_input("البريد الإلكتروني", key="su_email")
+            pw = st.text_input("كلمة السر (8 حروف على الأقل)", type="password", key="su_pw")
+            pw2 = st.text_input("تأكيد كلمة السر", type="password", key="su_pw2")
+            if st.form_submit_button("إنشاء الحساب"):
+                try:
+                    st.session_state["user"] = register_user(email, pw, pw2)
+                    st.rerun()
+                except UserError as e:
+                    st.error(str(e))
+
+# ───────────────────────── التحليل ─────────────────────────
 ALIASES = {
     "date": ["date", "تاريخ"],
     "amount": ["amount", "total", "value", "مبلغ", "قيمة", "اجمالي", "إجمالي"],
@@ -218,18 +290,19 @@ def analyze(df: pd.DataFrame):
     df["reasons"] = ["، ".join(r) for r in why]
     return df, note
 
-def save_report(filename: str, df: pd.DataFrame, note: str) -> int:
+# ───────────────────────── الحفظ والعرض (كله مقيّد بالمستخدم) ─────────────────────────
+def save_report(user_id: int, filename: str, df: pd.DataFrame, note: str) -> int:
     with Session() as s:
-        rep = Report(filename=filename, rows=len(df), flagged=int((df["score"] >= 40).sum()), note=note)
+        rep = Report(user_id=user_id, filename=filename, rows=len(df), flagged=int((df["score"] >= 40).sum()), note=note)
         s.add(rep)
         s.flush()
         s.add_all(Item(report_id=rep.id, row_no=i + 1, date=str(r["date"]), vendor=str(r["vendor"]), invoice=str(r["invoice"]), amount=float(r["amount"]), score=float(r["score"]), reasons=r["reasons"]) for i, r in df.iterrows())
         s.commit()
         return rep.id
 
-def list_reports(limit: int = 50):
+def list_reports(user_id: int, limit: int = 50):
     with Session() as s:
-        rs = s.query(Report).order_by(Report.id.desc()).limit(limit).all()
+        rs = s.query(Report).filter(Report.user_id == user_id).order_by(Report.id.desc()).limit(limit).all()
         return [{"id": r.id, "filename": r.filename, "created": r.created, "rows": r.rows, "flagged": r.flagged} for r in rs]
 
 def extra_checks(rows):
@@ -249,16 +322,17 @@ def extra_checks(rows):
     rounds = df[(amt >= 1000) & (amt % 1000 == 0)]
     return dups, gaps, rounds
 
-def get_report(rid: int):
+def get_report(rid: int, user_id: int):
     with Session() as s:
         r = s.get(Report, rid)
-        if not r: return None
+        if not r or r.user_id != user_id:  # مينفعش مستخدم يشوف تقرير غيره
+            return None
         dups, gaps, rounds = extra_checks(r.items)
         items = sorted(r.items, key=lambda i: -i.score)[:500]
         return {"dups": dups, "gaps": gaps, "rounds": rounds, "id": r.id, "filename": r.filename, "rows": r.rows, "flagged": r.flagged, "note": r.note, "items": pd.DataFrame([{"السطر": i.row_no, "التاريخ": i.date, "المورد": i.vendor, "الفاتورة": i.invoice, "المبلغ": i.amount, "درجة الخطر": i.score, "الأسباب": i.reasons} for i in items])}
 
-def show_report(rid: int, prefix: str = ""):
-    rep = get_report(rid)
+def show_report(rid: int, user_id: int, prefix: str = ""):
+    rep = get_report(rid, user_id)
     if rep is None:
         st.error("التقرير غير موجود"); return
     st.subheader(f"تقرير #{rep['id']} — {rep['filename']}")
@@ -278,15 +352,28 @@ def show_report(rid: int, prefix: str = ""):
         st.dataframe(rep["rounds"], use_container_width=True, hide_index=True)
     if rep["note"]: st.warning(rep["note"])
     items = rep["items"]
-    only_flagged = st.checkbox(f"عرض المشبوه فقط (درجة ≥ 40)", key=f"{prefix}_flagged_{rid}")
+    only_flagged = st.checkbox("عرض المشبوه فقط (درجة ≥ 40)", key=f"{prefix}_flagged_{rid}")
     view = items[items["درجة الخطر"] >= 40] if only_flagged else items
     st.dataframe(view, use_container_width=True, hide_index=True)
     buf = io.BytesIO()
     items.to_excel(buf, index=False)
     st.download_button("⬇️ تحميل التقرير (Excel)", buf.getvalue(), file_name=f"report_{rid}.xlsx", key=f"{prefix}_dl_{rid}")
 
-st.title("🔍 كاشف الاحتيال المالي")
-st.caption("🗄️ قاعدة البيانات: " + ("SQLite محلي" if IS_SQLITE else "Supabase (PostgreSQL)"))
+# ───────────────────────── الواجهة ─────────────────────────
+user = st.session_state.get("user")
+if not user:
+    st.title("🔍 كاشف الاحتيال المالي")
+    st.caption("سجّل دخولك أو أنشئ حسابا جديدا علشان ترفع ملفاتك وتشوف تقاريرك.")
+    auth_screen()
+    st.stop()
+
+h1, h2 = st.columns([4, 1])
+h1.title("🔍 كاشف الاحتيال المالي")
+h1.caption(f"👤 {user['email']}  |  🗄️ قاعدة البيانات: " + ("SQLite محلي" if IS_SQLITE else "Supabase (PostgreSQL)"))
+if h2.button("تسجيل الخروج"):
+    st.session_state.clear()
+    st.rerun()
+
 tab_upload, tab_reports = st.tabs(["📤 رفع وتحليل ملف", "📚 التقارير السابقة"])
 with tab_upload:
     file = st.file_uploader("ارفع ملف Excel أو CSV أو PDF", type=["xlsx", "xls", "csv", "pdf"])
@@ -298,20 +385,21 @@ with tab_upload:
             try:
                 with st.spinner("جاري التحليل..."):
                     df, note = analyze(read_file(file.name, data))
-                    st.session_state["last_report"] = save_report(file.name, df, note)
+                    st.session_state["last_report"] = save_report(user["id"], file.name, df, note)
             except UserError as e:
                 st.error(str(e))
             except Exception as e:
                 st.error(f"حدث خطأ: {e}")
     if "last_report" in st.session_state:
         st.success("تم التحليل وحفظ التقرير ✅")
-        show_report(st.session_state["last_report"], prefix="upload")
+        show_report(st.session_state["last_report"], user["id"], prefix="upload")
 
 with tab_reports:
-    reports = list_reports()
+    reports = list_reports(user["id"])
     if not reports:
         st.info("لا توجد تقارير محفوظة بعد.")
     else:
         st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
         chosen = st.selectbox("اختر تقريرا لعرضه", options=[r["id"] for r in reports], format_func=lambda i: next(f"#{r['id']} — {r['filename']}" for r in reports if r["id"] == i))
-        show_report(chosen, prefix="reports")
+        show_report(chosen, user["id"], prefix="reports")
+
