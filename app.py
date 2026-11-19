@@ -9,49 +9,137 @@ from sklearn.ensemble import IsolationForest
 from sqlalchemy import create_engine, inspect, text, Column, Integer, String, Float, DateTime, ForeignKey, Text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
+import altair as alt
 st.set_page_config(page_title="كاشف الاحتيال المالي", page_icon="🔍", layout="wide")
-st.markdown("""
-<style>
-/* اخفاء قايمة ستريمليت */
+
+# ───────────────────────── الثيم الزجاجي (Glassmorphism) ─────────────────────────
+ACCENT, ACCENT_2, GOOD, BAD = "#f59e0b", "#fb923c", "#34d399", "#f87171"
+BG_IMAGE = os.getenv("BG_IMAGE", "")  # مسار صورة خلفية اختيارية (مثلا assets/bg.jpg)
+
+GLASS_CSS = """
 #MainMenu, header, footer {visibility: hidden;}
-.stApp {background: #f8f9fb;}
-.app-card {
-    background: white;
-    padding: 20px;
-    border-radius: 20px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-    margin-bottom: 16px;
-    border: 1px solid #f0f0f0;
+html, body, [class*="css"] {font-family: 'Inter','Segoe UI',Tahoma,sans-serif;}
+.block-container {padding-top: 2rem; max-width: 1250px;}
+.stApp, .stApp p, .stApp label, .stApp li, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5,
+[data-testid="stMarkdownContainer"], [data-testid="stWidgetLabel"] p {color: #f5efe8;}
+[data-testid="stCaptionContainer"] {color: rgba(245,239,232,.6);}
+
+/* كروت زجاجية: st.container(border=True) */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background: linear-gradient(145deg, rgba(255,255,255,.09), rgba(255,255,255,.03));
+    backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%);
+    border: 1px solid rgba(255,255,255,.10) !important; border-radius: 22px !important;
+    box-shadow: 0 10px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08);
+    padding: .5rem .7rem;
 }
-.top-bar {
-    background: linear-gradient(135deg, #6c5ce7, #a29bfe);
-    color: white;
-    padding: 18px 20px;
-    border-radius: 0 0 25px 25px;
-    margin: -80px -40px 20px -40px;
-    text-align: center;
+/* الفورم جوه الكارت من غير اطار تاني */
+[data-testid="stForm"] {border: none !important; padding: 0 !important; background: transparent;}
+
+/* كروت الاحصائيات */
+.g-card {
+    background: linear-gradient(145deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
+    backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%);
+    border: 1px solid rgba(255,255,255,.10); border-radius: 22px; padding: 18px 20px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08);
+    transition: transform .25s ease, border-color .25s ease; margin-bottom: 14px;
 }
-.stButton>button, div[data-testid="stFormSubmitButton"]>button {
-    width: 100%;
-    border-radius: 14px !important;
-    height: 50px;
-    font-weight: bold;
-    background: #6c5ce7 !important;
-    color: white !important;
-    border: none !important;
+.g-card:hover {transform: translateY(-4px); border-color: rgba(245,158,11,.45);}
+.g-card.accent {background: linear-gradient(145deg, rgba(245,158,11,.38), rgba(180,83,9,.18)); border-color: rgba(245,158,11,.35);}
+.g-card.bad {background: linear-gradient(145deg, rgba(248,113,113,.22), rgba(127,29,29,.10)); border-color: rgba(248,113,113,.30);}
+.g-row {display:flex; align-items:center; justify-content:space-between; gap:10px;}
+.g-title {font-size:.85rem; opacity:.75; margin:0 0 8px;}
+.g-value {font-size:1.9rem; font-weight:800; margin:0; line-height:1.1;}
+.g-icon {width:36px; height:36px; border-radius:12px; display:grid; place-items:center; background:rgba(255,255,255,.08); font-size:1.1rem;}
+.g-sub {font-size:.75rem; opacity:.55; margin-top:8px;}
+
+/* هيدر وهيرو */
+.g-header h1 {margin:0; font-size:1.9rem; color:#f5efe8;}
+.g-header p {margin:.25rem 0 1.2rem; opacity:.6;}
+.g-hero {text-align:center; margin: 3vh 0 1.4rem;}
+.g-hero .logo {width:64px; height:64px; margin:0 auto 14px; border-radius:20px; display:grid; place-items:center; font-size:1.8rem;
+    background: linear-gradient(135deg, rgba(245,158,11,.5), rgba(180,83,9,.25)); border:1px solid rgba(245,158,11,.4);
+    box-shadow: 0 10px 30px rgba(245,158,11,.25);}
+.g-hero h1 {margin:0; font-size:2rem;}
+.g-hero p {opacity:.6; margin:.4rem 0 0;}
+
+/* ازرار */
+.stButton>button, .stDownloadButton>button, div[data-testid="stFormSubmitButton"]>button {
+    width: 100%; height: 48px; border: none !important; border-radius: 999px !important; font-weight: 700;
+    background: linear-gradient(135deg, #f59e0b, #fb923c) !important; color: #1a1004 !important;
+    box-shadow: 0 6px 22px rgba(245,158,11,.35); transition: transform .2s ease, box-shadow .2s ease;
 }
-div[data-testid="stMetric"] {
-    background: white;
-    padding: 15px;
-    border-radius: 16px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+.stButton>button:hover, .stDownloadButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
+    transform: translateY(-2px); box-shadow: 0 10px 28px rgba(245,158,11,.5);
 }
-</style>
-<div class="top-bar">
-    <h2 style="margin:0">🔍 كاشف الاحتيال</h2>
-    <p style="margin:4px 0 0 0; opacity:0.9; font-size:13px">الذكاء الاصطناعي للمراجعة المالية</p>
-</div>
-""", unsafe_allow_html=True)
+
+/* انبوتس */
+.stTextInput input, .stNumberInput input, .stTextArea textarea, [data-baseweb="select"]>div {
+    background: rgba(255,255,255,.06) !important; border: 1px solid rgba(255,255,255,.12) !important;
+    border-radius: 14px !important; color: #f5efe8 !important;
+}
+
+/* رفع الملفات */
+[data-testid="stFileUploaderDropzone"] {background: rgba(255,255,255,.04); border: 1.5px dashed rgba(245,158,11,.5); border-radius: 20px;}
+
+/* تابس */
+.stTabs [data-baseweb="tab-list"] {gap:6px; background:rgba(255,255,255,.05); padding:6px; border-radius:999px; border:1px solid rgba(255,255,255,.08); width:fit-content;}
+.stTabs [data-baseweb="tab"] {border-radius:999px; padding:6px 18px; height:auto;}
+.stTabs [aria-selected="true"] {background: rgba(245,158,11,.25); color:#f59e0b;}
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {display:none;}
+
+/* جداول واكسباندر ورسايل */
+[data-testid="stDataFrame"] {border-radius:18px; overflow:hidden; border:1px solid rgba(255,255,255,.08);}
+[data-testid="stExpander"] {background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08) !important; border-radius:16px;}
+[data-testid="stAlert"] {border-radius:16px; backdrop-filter: blur(12px);}
+::-webkit-scrollbar {width:8px; height:8px;} ::-webkit-scrollbar-thumb {background:rgba(255,255,255,.18); border-radius:8px;}
+"""
+
+def _bg_css() -> str:
+    if BG_IMAGE and os.path.exists(BG_IMAGE):
+        import base64, mimetypes
+        mime = mimetypes.guess_type(BG_IMAGE)[0] or "image/jpeg"
+        b64 = base64.b64encode(open(BG_IMAGE, "rb").read()).decode()
+        return f'.stApp {{background: linear-gradient(rgba(8,6,4,.55), rgba(8,6,4,.78)), url("data:{mime};base64,{b64}") center/cover fixed no-repeat;}}'
+    return """.stApp {background:
+        radial-gradient(900px 500px at 8% 8%, rgba(245,158,11,.28), transparent 60%),
+        radial-gradient(800px 600px at 95% 20%, rgba(180,83,9,.30), transparent 60%),
+        radial-gradient(900px 700px at 50% 105%, rgba(120,53,15,.35), transparent 60%), #0b0907;
+        background-attachment: fixed;}"""
+
+st.markdown(f"<style>{_bg_css()}{GLASS_CSS}</style>", unsafe_allow_html=True)
+
+def section_header(title: str, subtitle: str = ""):
+    st.markdown(f'<div class="g-header"><h1>{title}</h1><p>{subtitle}</p></div>', unsafe_allow_html=True)
+
+def stat_card(title: str, value: str, icon: str = "◔", variant: str = "", sub: str = ""):
+    sub_html = f'<div class="g-sub">{sub}</div>' if sub else ""
+    st.markdown(
+        f'<div class="g-card {variant}"><div class="g-row"><p class="g-title">{title}</p><div class="g-icon">{icon}</div></div>'
+        f'<p class="g-value">{value}</p>{sub_html}</div>', unsafe_allow_html=True)
+
+def _style_chart(ch, height=260):
+    return (ch.properties(height=height, background="transparent")
+              .configure_view(strokeWidth=0)
+              .configure_axis(labelColor="#d9cfc4", gridColor="rgba(255,255,255,0.07)", domainColor="rgba(255,255,255,0.15)", tickColor="rgba(255,255,255,0.15)")
+              .configure_legend(labelColor="#d9cfc4", titleColor="#d9cfc4", orient="bottom"))
+
+def risk_charts(items: pd.DataFrame, rows: int, flagged: int):
+    if items.empty:
+        return
+    left, right = st.columns([2, 1])
+    with left, st.container(border=True):
+        st.markdown("##### توزيع درجات الخطر")
+        d = items[["درجة الخطر"]].rename(columns={"درجة الخطر": "score"})
+        hist = alt.Chart(d).mark_bar(color=ACCENT, opacity=.9, cornerRadiusTopLeft=6, cornerRadiusTopRight=6).encode(
+            x=alt.X("score:Q", bin=alt.Bin(maxbins=20), title=None), y=alt.Y("count():Q", title=None))
+        st.altair_chart(_style_chart(hist), use_container_width=True, theme=None)
+    with right, st.container(border=True):
+        st.markdown("##### مشبوه مقابل سليم")
+        pie = pd.DataFrame({"الحالة": ["مشبوه", "سليم"], "العدد": [flagged, max(rows - flagged, 0)]})
+        donut = alt.Chart(pie).mark_arc(innerRadius=62, stroke="rgba(0,0,0,0)").encode(
+            theta="العدد:Q", color=alt.Color("الحالة:N", scale=alt.Scale(domain=["مشبوه", "سليم"], range=[ACCENT, "#4b443c"]), legend=alt.Legend(title=None)))
+        st.altair_chart(_style_chart(donut), use_container_width=True, theme=None)
+
 
 # ───────────────────────── قاعدة البيانات ─────────────────────────
 def _db_url() -> str:
@@ -335,15 +423,17 @@ def show_report(rid: int, user_id: int, prefix: str = ""):
     rep = get_report(rid, user_id)
     if rep is None:
         st.error("التقرير غير موجود"); return
-    st.subheader(f"تقرير #{rep['id']} — {rep['filename']}")
+    ratio = rep["flagged"] / max(rep["rows"], 1)
+    section_header(f"تقرير #{rep['id']}", rep["filename"])
     c1, c2, c3 = st.columns(3)
-    c1.metric("عدد السطور", f"{rep['rows']:,}")
-    c2.metric("مشبوهة (درجة ≥ 40)", f"{rep['flagged']:,}")
-    c3.metric("نسبة الشبهة", f"{rep['flagged'] / max(rep['rows'], 1):.1%}")
+    with c1: stat_card("عدد السطور", f"{rep['rows']:,}", "📊", "accent")
+    with c2: stat_card("مشبوهة (درجة ≥ 40)", f"{rep['flagged']:,}", "⚠️", "bad" if rep["flagged"] else "")
+    with c3: stat_card("نسبة الشبهة", f"{ratio:.1%}", "🎯")
     d1, d2, d3 = st.columns(3)
-    d1.metric("🔁 فواتير متكررة", f"{len(rep['dups']):,}")
-    d2.metric("❓ أرقام فواتير ناقصة", f"{len(rep['gaps']):,}")
-    d3.metric("🔢 مبالغ مقفولة (000)", f"{len(rep['rounds']):,}")
+    with d1: stat_card("فواتير متكررة", f"{len(rep['dups']):,}", "🔁")
+    with d2: stat_card("أرقام فواتير ناقصة", f"{len(rep['gaps']):,}", "❓")
+    with d3: stat_card("مبالغ مقفولة (000)", f"{len(rep['rounds']):,}", "🔢")
+    risk_charts(rep["items"], rep["rows"], rep["flagged"])
     with st.expander("تفاصيل الفواتير المتكررة"):
         st.dataframe(rep["dups"], use_container_width=True, hide_index=True)
     with st.expander("تفاصيل أرقام الفواتير الناقصة"):
@@ -362,22 +452,32 @@ def show_report(rid: int, user_id: int, prefix: str = ""):
 # ───────────────────────── الواجهة ─────────────────────────
 user = st.session_state.get("user")
 if not user:
-    st.title("🔍 كاشف الاحتيال المالي")
-    st.caption("سجّل دخولك أو أنشئ حسابا جديدا علشان ترفع ملفاتك وتشوف تقاريرك.")
-    auth_screen()
+    _, mid, _ = st.columns([1, 1.5, 1])
+    with mid:
+        st.markdown(
+            '<div class="g-hero"><div class="logo">🔍</div><h1>كاشف الاحتيال المالي</h1>'
+            '<p>سجّل دخولك أو أنشئ حسابا جديدا علشان ترفع ملفاتك وتشوف تقاريرك.</p></div>',
+            unsafe_allow_html=True)
+        with st.container(border=True):
+            auth_screen()
     st.stop()
 
 h1, h2 = st.columns([4, 1])
-h1.title("🔍 كاشف الاحتيال المالي")
-h1.caption(f"👤 {user['email']}  |  🗄️ قاعدة البيانات: " + ("SQLite محلي" if IS_SQLITE else "Supabase (PostgreSQL)"))
-if h2.button("تسجيل الخروج"):
-    st.session_state.clear()
-    st.rerun()
+with h1:
+    section_header("🔍 كاشف الاحتيال المالي",
+                   f"👤 {user['email']}  |  🗄️ قاعدة البيانات: " + ("SQLite محلي" if IS_SQLITE else "Supabase (PostgreSQL)"))
+with h2:
+    st.write("")
+    if st.button("تسجيل الخروج"):
+        st.session_state.clear()
+        st.rerun()
 
 tab_upload, tab_reports = st.tabs(["📤 رفع وتحليل ملف", "📚 التقارير السابقة"])
 with tab_upload:
-    file = st.file_uploader("ارفع ملف Excel أو CSV أو PDF", type=["xlsx", "xls", "csv", "pdf"])
-    if file is not None and st.button("تحليل وحفظ", type="primary"):
+    with st.container(border=True):
+        file = st.file_uploader("ارفع ملف Excel أو CSV أو PDF", type=["xlsx", "xls", "csv", "pdf"])
+        run = file is not None and st.button("تحليل وحفظ", type="primary")
+    if run:
         data = file.getvalue()
         if len(data) > MAX_SIZE:
             st.error("الملف أكبر من 25MB")
@@ -399,7 +499,7 @@ with tab_reports:
     if not reports:
         st.info("لا توجد تقارير محفوظة بعد.")
     else:
-        st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
-        chosen = st.selectbox("اختر تقريرا لعرضه", options=[r["id"] for r in reports], format_func=lambda i: next(f"#{r['id']} — {r['filename']}" for r in reports if r["id"] == i))
+        with st.container(border=True):
+            st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
+            chosen = st.selectbox("اختر تقريرا لعرضه", options=[r["id"] for r in reports], format_func=lambda i: next(f"#{r['id']} — {r['filename']}" for r in reports if r["id"] == i))
         show_report(chosen, user["id"], prefix="reports")
-
