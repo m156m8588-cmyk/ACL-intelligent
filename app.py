@@ -72,11 +72,16 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     transform: translateY(-2px); box-shadow: 0 10px 28px rgba(245,158,11,.5);
 }
 
-/* انبوتس */
-.stTextInput input, .stNumberInput input, .stTextArea textarea, [data-baseweb="select"]>div {
-    background: rgba(255,255,255,.06) !important; border: 1px solid rgba(255,255,255,.12) !important;
-    border-radius: 14px !important; color: #f5efe8 !important;
+/* انبوتس: زجاج غامق وكتابة فاتحة */
+[data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-baseweb="select"]>div {
+    background: rgba(255,255,255,.07) !important; border: 1px solid rgba(255,255,255,.14) !important; border-radius: 14px !important;
 }
+.stTextInput input, .stNumberInput input, .stTextArea textarea {
+    background: transparent !important; color: #f5efe8 !important; -webkit-text-fill-color: #f5efe8 !important; caret-color: #f59e0b;
+}
+.stTextInput input::placeholder, .stTextArea textarea::placeholder {color: rgba(245,239,232,.4) !important; -webkit-text-fill-color: rgba(245,239,232,.4) !important;}
+input:-webkit-autofill, input:-webkit-autofill:focus {-webkit-box-shadow: 0 0 0 1000px #1a140d inset !important; -webkit-text-fill-color: #f5efe8 !important;}
+[data-baseweb="input"] button svg {fill: #f5efe8 !important;}
 
 /* رفع الملفات */
 [data-testid="stFileUploaderDropzone"] {background: rgba(255,255,255,.04); border: 1.5px dashed rgba(245,158,11,.5); border-radius: 20px;}
@@ -90,7 +95,24 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 /* جداول واكسباندر ورسايل */
 [data-testid="stDataFrame"] {border-radius:18px; overflow:hidden; border:1px solid rgba(255,255,255,.08);}
 [data-testid="stExpander"] {background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08) !important; border-radius:16px;}
-[data-testid="stAlert"] {border-radius:16px; backdrop-filter: blur(12px);}
+/* رسايل التنبيه (warning / success / error / info): زجاج ملوّن وكتابة فاتحة */
+[data-testid="stAlert"], [data-testid="stAlertContainer"] {
+    background: rgba(245,158,11,.14) !important; border: 1px solid rgba(245,158,11,.35) !important;
+    border-radius: 16px !important; backdrop-filter: blur(12px);
+}
+[data-testid="stAlert"] *, [data-testid="stAlertContainer"] * {color: #f5efe8 !important;}
+[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]), [data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]) {
+    background: rgba(52,211,153,.14) !important; border-color: rgba(52,211,153,.35) !important;}
+[data-testid="stAlert"]:has([data-testid="stAlertContentError"]), [data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]) {
+    background: rgba(248,113,113,.15) !important; border-color: rgba(248,113,113,.35) !important;}
+[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]), [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]) {
+    background: rgba(96,165,250,.14) !important; border-color: rgba(96,165,250,.35) !important;}
+/* تنبيهات مخصصة (glass_alert) */
+.g-alert {border-radius:16px; padding:14px 18px; margin:10px 0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border:1px solid rgba(245,158,11,.40); background: rgba(245,158,11,.16); color:#f5efe8; line-height:1.7;}
+.g-alert.success {border-color: rgba(52,211,153,.40); background: rgba(52,211,153,.15);}
+.g-alert.error {border-color: rgba(248,113,113,.45); background: rgba(248,113,113,.16);}
+.g-alert.info {border-color: rgba(96,165,250,.40); background: rgba(96,165,250,.15);}
 ::-webkit-scrollbar {width:8px; height:8px;} ::-webkit-scrollbar-thumb {background:rgba(255,255,255,.18); border-radius:8px;}
 """
 
@@ -116,6 +138,13 @@ def stat_card(title: str, value: str, icon: str = "◔", variant: str = "", sub:
     st.markdown(
         f'<div class="g-card {variant}"><div class="g-row"><p class="g-title">{title}</p><div class="g-icon">{icon}</div></div>'
         f'<p class="g-value">{value}</p>{sub_html}</div>', unsafe_allow_html=True)
+
+def glass_alert(kind: str, msg: str):
+    """بديل st.warning / st.error / st.success / st.info بشكل زجاجي وكتابة واضحة."""
+    import html
+    icons = {"warning": "⚠️", "error": "⛔", "success": "✅", "info": "ℹ️"}
+    cls = "" if kind == "warning" else kind
+    st.markdown(f'<div class="g-alert {cls}">{icons.get(kind, "")} {html.escape(str(msg))}</div>', unsafe_allow_html=True)
 
 def _style_chart(ch, height=260):
     return (ch.properties(height=height, background="transparent")
@@ -166,7 +195,7 @@ def get_engine():
     return create_engine(DB_URL, pool_pre_ping=True, pool_size=5, max_overflow=2, pool_recycle=300)
 
 def _db_fail(e: Exception):
-    st.error(
+    glass_alert("error", 
         f"تعذر الاتصال بقاعدة البيانات ({type(e).__name__}). "
         "راجع DATABASE_URL: استخدم رابط Session pooler من Supabase، "
         "وتأكد من تشفير الرموز الخاصة في كلمة السر، ومن إضافة psycopg2-binary في requirements.txt."
@@ -277,7 +306,7 @@ def auth_screen():
                     st.session_state["user"] = login_user(email, pw)
                     st.rerun()
                 except UserError as e:
-                    st.error(str(e))
+                    glass_alert("error", str(e))
     with t_signup:
         with st.form("signup_form"):
             email = st.text_input("البريد الإلكتروني", key="su_email")
@@ -288,7 +317,7 @@ def auth_screen():
                     st.session_state["user"] = register_user(email, pw, pw2)
                     st.rerun()
                 except UserError as e:
-                    st.error(str(e))
+                    glass_alert("error", str(e))
 
 # ───────────────────────── التحليل ─────────────────────────
 ALIASES = {
@@ -300,6 +329,8 @@ ALIASES = {
 THRESHOLDS = [float(x) for x in os.getenv("APPROVAL_LIMITS", "10000,50000").split(",")]
 WEEKEND = {4, 5}
 MAX_SIZE = 25 * 1024 * 1024
+NIGHT_START, NIGHT_END = 0, 5                      # عمليات نص الليل: من 12 ص لحد 5 ص
+ZSCORE_LIMIT = float(os.getenv("ZSCORE_LIMIT", "3"))  # المبلغ الشاذ: |Z| اكبر من 3
 
 def read_file(name: str, data: bytes) -> pd.DataFrame:
     ext = name.lower().rsplit(".", 1)[-1]
@@ -410,19 +441,43 @@ def extra_checks(rows):
     rounds = df[(amt >= 1000) & (amt % 1000 == 0)]
     return dups, gaps, rounds
 
+def night_zscore_checks(rows):
+    """عمليات نص الليل + المبالغ الشاذة بـ Z-Score (بتتحسب من البيانات المحفوظة، فبتشتغل على التقارير القديمة كمان)."""
+    cols = ["السطر", "التاريخ", "المورد", "الفاتورة", "المبلغ"]
+    df = pd.DataFrame([{"السطر": i.row_no, "التاريخ": i.date, "المورد": i.vendor, "الفاتورة": i.invoice, "المبلغ": i.amount} for i in rows], columns=cols)
+    empty_z = df.iloc[0:0].assign(**{"Z-Score": []})
+    if df.empty:
+        return df, False, empty_z
+    # --- عمليات نص الليل ---
+    dt = pd.to_datetime(df["التاريخ"], errors="coerce")
+    has_clock = dt.notna() & ((dt.dt.hour != 0) | (dt.dt.minute != 0) | (dt.dt.second != 0))   # السطر فيه وقت فعلي مش تاريخ بس
+    has_time = bool(has_clock.any())
+    night = df[has_clock & (dt.dt.hour >= NIGHT_START) & (dt.dt.hour < NIGHT_END)] if has_time else df.iloc[0:0]
+    # --- المبالغ الشاذة (Z-Score) ---
+    amt = df["المبلغ"].astype(float)
+    sd = amt.std(ddof=0)
+    if len(amt) >= 10 and sd > 0:
+        z = (amt - amt.mean()) / sd
+        zdf = df.assign(**{"Z-Score": z.round(2)})[z.abs() > ZSCORE_LIMIT]
+        zdf = zdf.reindex(zdf["Z-Score"].abs().sort_values(ascending=False).index)
+    else:
+        zdf = empty_z
+    return night, has_time, zdf
+
 def get_report(rid: int, user_id: int):
     with Session() as s:
         r = s.get(Report, rid)
         if not r or r.user_id != user_id:  # مينفعش مستخدم يشوف تقرير غيره
             return None
         dups, gaps, rounds = extra_checks(r.items)
+        night, has_time, zdf = night_zscore_checks(r.items)
         items = sorted(r.items, key=lambda i: -i.score)[:500]
-        return {"dups": dups, "gaps": gaps, "rounds": rounds, "id": r.id, "filename": r.filename, "rows": r.rows, "flagged": r.flagged, "note": r.note, "items": pd.DataFrame([{"السطر": i.row_no, "التاريخ": i.date, "المورد": i.vendor, "الفاتورة": i.invoice, "المبلغ": i.amount, "درجة الخطر": i.score, "الأسباب": i.reasons} for i in items])}
+        return {"dups": dups, "gaps": gaps, "rounds": rounds, "night": night, "has_time": has_time, "zdf": zdf, "id": r.id, "filename": r.filename, "rows": r.rows, "flagged": r.flagged, "note": r.note, "items": pd.DataFrame([{"السطر": i.row_no, "التاريخ": i.date, "المورد": i.vendor, "الفاتورة": i.invoice, "المبلغ": i.amount, "درجة الخطر": i.score, "الأسباب": i.reasons} for i in items])}
 
 def show_report(rid: int, user_id: int, prefix: str = ""):
     rep = get_report(rid, user_id)
     if rep is None:
-        st.error("التقرير غير موجود"); return
+        glass_alert("error", "التقرير غير موجود"); return
     ratio = rep["flagged"] / max(rep["rows"], 1)
     section_header(f"تقرير #{rep['id']}", rep["filename"])
     c1, c2, c3 = st.columns(3)
@@ -433,6 +488,14 @@ def show_report(rid: int, user_id: int, prefix: str = ""):
     with d1: stat_card("فواتير متكررة", f"{len(rep['dups']):,}", "🔁")
     with d2: stat_card("أرقام فواتير ناقصة", f"{len(rep['gaps']):,}", "❓")
     with d3: stat_card("مبالغ مقفولة (000)", f"{len(rep['rounds']):,}", "🔢")
+    e1, e2 = st.columns(2)
+    with e1:
+        n_night = len(rep["night"])
+        stat_card("عمليات نص الليل", f"{n_night:,}", "🌙", "bad" if n_night else "",
+                  sub="بين 12 ص و 5 ص" if rep["has_time"] else "الملف مفيهوش وقت للعمليات (تاريخ بس)")
+    with e2:
+        n_z = len(rep["zdf"])
+        stat_card("مبالغ شاذة (Z-Score)", f"{n_z:,}", "📈", "bad" if n_z else "", sub=f"|Z| أكبر من {ZSCORE_LIMIT:g}")
     risk_charts(rep["items"], rep["rows"], rep["flagged"])
     with st.expander("تفاصيل الفواتير المتكررة"):
         st.dataframe(rep["dups"], use_container_width=True, hide_index=True)
@@ -440,7 +503,14 @@ def show_report(rid: int, user_id: int, prefix: str = ""):
         st.write(rep["gaps"][:500] if rep["gaps"] else "لا توجد أرقام ناقصة")
     with st.expander("تفاصيل المبالغ المقفولة"):
         st.dataframe(rep["rounds"], use_container_width=True, hide_index=True)
-    if rep["note"]: st.warning(rep["note"])
+    with st.expander("تفاصيل عمليات نص الليل"):
+        if rep["has_time"]:
+            st.dataframe(rep["night"], use_container_width=True, hide_index=True)
+        else:
+            st.write("الملف مفيهوش وقت للعمليات، فمقدرش أحدد عمليات نص الليل. ضيف الوقت جنب التاريخ (مثلا 2025-08-19 02:30).")
+    with st.expander("تفاصيل المبالغ الشاذة (Z-Score)"):
+        st.dataframe(rep["zdf"], use_container_width=True, hide_index=True)
+    if rep["note"]: glass_alert("warning", rep["note"])
     items = rep["items"]
     only_flagged = st.checkbox("عرض المشبوه فقط (درجة ≥ 40)", key=f"{prefix}_flagged_{rid}")
     view = items[items["درجة الخطر"] >= 40] if only_flagged else items
@@ -480,24 +550,24 @@ with tab_upload:
     if run:
         data = file.getvalue()
         if len(data) > MAX_SIZE:
-            st.error("الملف أكبر من 25MB")
+            glass_alert("error", "الملف أكبر من 25MB")
         else:
             try:
                 with st.spinner("جاري التحليل..."):
                     df, note = analyze(read_file(file.name, data))
                     st.session_state["last_report"] = save_report(user["id"], file.name, df, note)
             except UserError as e:
-                st.error(str(e))
+                glass_alert("error", str(e))
             except Exception as e:
-                st.error(f"حدث خطأ: {e}")
+                glass_alert("error", f"حدث خطأ: {e}")
     if "last_report" in st.session_state:
-        st.success("تم التحليل وحفظ التقرير ✅")
+        glass_alert("success", "تم التحليل وحفظ التقرير")
         show_report(st.session_state["last_report"], user["id"], prefix="upload")
 
 with tab_reports:
     reports = list_reports(user["id"])
     if not reports:
-        st.info("لا توجد تقارير محفوظة بعد.")
+        glass_alert("info", "لا توجد تقارير محفوظة بعد.")
     else:
         with st.container(border=True):
             st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
