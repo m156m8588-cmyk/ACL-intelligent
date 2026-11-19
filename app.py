@@ -332,6 +332,25 @@ MAX_SIZE = 25 * 1024 * 1024
 NIGHT_START, NIGHT_END = 0, 5                      # عمليات نص الليل: من 12 ص لحد 5 ص
 ZSCORE_LIMIT = float(os.getenv("ZSCORE_LIMIT", "3"))  # المبلغ الشاذ: |Z| اكبر من 3
 
+def parse_dates(s):
+    """قراءة التواريخ بشكل آمن: كل قيمة بتتقرا لوحدها (من غير ما اول صف يحدد الصيغة للباقي).
+    الصيغة ISO (2025-04-10) سنة/شهر/يوم، وغيرها (21/06/2025) يوم/شهر/سنة."""
+    if pd.api.types.is_datetime64_any_dtype(s):
+        return s
+    txt = s.astype(str).str.strip()
+    iso = txt.str.match(r"^\d{4}-\d{1,2}-\d{1,2}")
+    parts = []
+    for mask, dayfirst in ((iso, False), (~iso, True)):
+        if not mask.any():
+            continue
+        try:
+            parts.append(pd.to_datetime(txt[mask], errors="coerce", format="mixed", dayfirst=dayfirst))
+        except (TypeError, ValueError):   # نسخ pandas القديمة مفيهاش format="mixed"
+            parts.append(pd.to_datetime(txt[mask], errors="coerce", dayfirst=dayfirst))
+    if not parts:
+        return pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
+    return pd.concat(parts).reindex(s.index)
+
 def read_file(name: str, data: bytes) -> pd.DataFrame:
     ext = name.lower().rsplit(".", 1)[-1]
     if ext in ("xlsx", "xls"):
@@ -364,7 +383,7 @@ def read_file(name: str, data: bytes) -> pd.DataFrame:
             df[k] = None
     df["amount"] = pd.to_numeric(df["amount"].astype(str).str.replace(",", ""), errors="coerce")
     df = df.dropna(subset=["amount"]).reset_index(drop=True)
-    df["date_parsed"] = pd.to_datetime(df["date"], errors="coerce")
+    df["date_parsed"] = parse_dates(df["date"])
     return df
 
 def analyze(df: pd.DataFrame):
@@ -449,7 +468,7 @@ def night_zscore_checks(rows):
     if df.empty:
         return df, False, empty_z
     # --- عمليات نص الليل ---
-    dt = pd.to_datetime(df["التاريخ"], errors="coerce")
+    dt = parse_dates(df["التاريخ"])
     has_clock = dt.notna() & ((dt.dt.hour != 0) | (dt.dt.minute != 0) | (dt.dt.second != 0))   # السطر فيه وقت فعلي مش تاريخ بس
     has_time = bool(has_clock.any())
     night = df[has_clock & (dt.dt.hour >= NIGHT_START) & (dt.dt.hour < NIGHT_END)] if has_time else df.iloc[0:0]
