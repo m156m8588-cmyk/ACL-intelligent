@@ -73,28 +73,10 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 }
 
 /* انبوتس */
-[data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-baseweb="select"]>div {
-    background: rgba(255,255,255,.92) !important;
-    border: 1px solid rgba(255,255,255,.35) !important;
-    border-radius: 14px !important;
+.stTextInput input, .stNumberInput input, .stTextArea textarea, [data-baseweb="select"]>div {
+    background: rgba(255,255,255,.06) !important; border: 1px solid rgba(255,255,255,.12) !important;
+    border-radius: 14px !important; color: #f5efe8 !important;
 }
-.stTextInput input, .stNumberInput input, .stTextArea textarea {
-    background: transparent !important;
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    caret-color: #000000;
-}
-.stTextInput input::placeholder, .stTextArea textarea::placeholder {
-    color: rgba(0,0,0,.45) !important;
-    -webkit-text-fill-color: rgba(0,0,0,.45) !important;
-}
-/* الـ Autofill */
-input:-webkit-autofill, input:-webkit-autofill:focus {
-    -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
-    -webkit-text-fill-color: #000000 !important;
-}
-/* زرار اظهار الباسورد (العين) */
-[data-baseweb="input"] button svg {fill: #000000 !important;}
 
 /* رفع الملفات */
 [data-testid="stFileUploaderDropzone"] {background: rgba(255,255,255,.04); border: 1.5px dashed rgba(245,158,11,.5); border-radius: 20px;}
