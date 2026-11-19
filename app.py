@@ -73,9 +73,26 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 }
 
 /* انبوتس */
-.stTextInput input, .stNumberInput input, .stTextArea textarea, [data-baseweb="select"]>div {
-    background: rgba(255,255,255,.06) !important; border: 1px solid rgba(255,255,255,.12) !important;
-    border-radius: 14px !important; color: #f5efe8 !important;
+[data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"], [data-baseweb="select"]>div {
+    background: rgba(255,255,255,.07) !important;
+    border: 1px solid rgba(255,255,255,.14) !important;
+    border-radius: 14px !important;
+}
+.stTextInput input, .stNumberInput input, .stTextArea textarea {
+    background: transparent !important;
+    color: #f5efe8 !important;
+    -webkit-text-fill-color: #f5efe8 !important;
+    caret-color: #f59e0b;
+}
+.stTextInput input::placeholder, .stTextArea textarea::placeholder {
+    color: rgba(245,239,232,.4) !important;
+    -webkit-text-fill-color: rgba(245,239,232,.4) !important;
+}
+/* منع الخلفية البيضا بتاعة Autofill */
+input:-webkit-autofill, input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #1a140d inset !important;
+    -webkit-text-fill-color: #f5efe8 !important;
+}
 }
 
 /* رفع الملفات */
