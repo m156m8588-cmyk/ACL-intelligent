@@ -258,6 +258,37 @@ class UserError(Exception): pass
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PBKDF2_ITERS = 200_000
 
+# ── تسجيل الدخول بجوجل (st.login) ──
+# بيشتغل بس لو إعدادات [auth] موجودة في secrets.toml ونسخة Streamlit 1.42 أو أحدث
+def _google_enabled() -> bool:
+    if not hasattr(st, "login"):
+        return False
+    try:
+        a = st.secrets["auth"]
+        return bool(a.get("client_id") and a.get("client_secret") and a.get("redirect_uri"))
+    except Exception:
+        return False
+
+GOOGLE_ENABLED = _google_enabled()
+ALLOW_PASSWORD_AUTH = os.getenv("ALLOW_PASSWORD_AUTH", "1") != "0"  # حط 0 علشان تخلي الدخول بجوجل بس
+GOOGLE_ONLY = "google-only"  # قيمة مش بتطابق أي باسورد (مفيهاش "$")، فمحدش يقدر يدخل بيها بباسورد
+
+def google_user(email: str, verified: bool) -> dict:
+    """بيدور على المستخدم بالإيميل اللي جوجل أكدته، ولو مش موجود بيعمله حساب جديد."""
+    email = (email or "").strip().lower()
+    if not verified or not EMAIL_RE.match(email):
+        raise UserError("جوجل لم تؤكد هذا البريد الإلكتروني")
+    with Session() as s:
+        u = s.query(User).filter_by(email=email).first()
+        if u is None:
+            u = User(email=email, password_hash=GOOGLE_ONLY)
+            s.add(u)
+        elif u.password_hash != GOOGLE_ONLY:
+            # حساب قديم بباسورد: بنقفل الباسورد بعد ما صاحب الإيميل أثبت ملكيته عن طريق جوجل
+            u.password_hash = GOOGLE_ONLY
+        s.commit()
+        return {"id": u.id, "email": u.email}
+
 def hash_password(pw: str) -> str:
     salt = os.urandom(16)
     h = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, PBKDF2_ITERS)
@@ -296,6 +327,11 @@ def login_user(email: str, pw: str) -> dict:
         return {"id": u.id, "email": u.email}
 
 def auth_screen():
+    if GOOGLE_ENABLED:
+        st.button("🔵 المتابعة بحساب جوجل", on_click=st.login, key="google_btn")
+        if not ALLOW_PASSWORD_AUTH:
+            return
+        st.markdown('<p style="text-align:center;opacity:.5;margin:.6rem 0">أو بالبريد وكلمة السر</p>', unsafe_allow_html=True)
     t_login, t_signup = st.tabs(["🔑 تسجيل الدخول", "🆕 إنشاء حساب"])
     with t_login:
         with st.form("login_form"):
@@ -540,6 +576,14 @@ def show_report(rid: int, user_id: int, prefix: str = ""):
 
 # ───────────────────────── الواجهة ─────────────────────────
 user = st.session_state.get("user")
+if not user and GOOGLE_ENABLED and st.user.is_logged_in:
+    try:
+        user = st.session_state["user"] = google_user(
+            getattr(st.user, "email", ""), bool(getattr(st.user, "email_verified", False)))
+    except UserError as e:
+        glass_alert("error", str(e))
+        st.button("تسجيل الخروج من جوجل", on_click=st.logout, key="google_bad_logout")
+        st.stop()
 if not user:
     _, mid, _ = st.columns([1, 1.5, 1])
     with mid:
@@ -559,7 +603,10 @@ with h2:
     st.write("")
     if st.button("تسجيل الخروج"):
         st.session_state.clear()
-        st.rerun()
+        if GOOGLE_ENABLED and st.user.is_logged_in:
+            st.logout()  # بيقفل جلسة جوجل كمان، وإلا هيدخلك تاني أوتوماتيك
+        else:
+            st.rerun()
 
 tab_upload, tab_reports = st.tabs(["📤 رفع وتحليل ملف", "📚 التقارير السابقة"])
 with tab_upload:
