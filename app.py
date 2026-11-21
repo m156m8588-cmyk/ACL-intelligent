@@ -182,6 +182,8 @@ def _db_url() -> str:
     url = url.strip()
     if url.startswith("postgres://"):  # SQLAlchemy مش بيقبل postgres://
         url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):  # SQLAlchemy 2.1+ بيستخدم psycopg3 تلقائيا، واحنا مثبتين psycopg2-binary
+        url = "postgresql+psycopg2://" + url[len("postgresql://"):]
     return url
 
 DB_URL = _db_url()
