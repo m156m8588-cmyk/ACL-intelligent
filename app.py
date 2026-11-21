@@ -199,7 +199,14 @@ def get_engine():
 def _db_fail(e: Exception):
     # تفاصيل آمنة للتشخيص: اسم المكتبة الناقصة (لو موجودة) ونوع الرابط، من غير كلمة السر
     scheme = DB_URL.split("://")[0] if "://" in DB_URL else "؟"
-    detail = f" — {e}" if isinstance(e, ModuleNotFoundError) else ""
+    detail = ""
+    if isinstance(e, ModuleNotFoundError):
+        detail = f" — {e}"
+    elif type(e).__name__ == "ProgrammingError":
+        # أول سطر من رسالة قاعدة البيانات (بيقول السبب، ومفيهوش كلمة السر)
+        first = (str(getattr(e, "orig", None) or e).strip().splitlines() or [""])[0]
+        detail = f" — {first[:200]}"
+    import traceback; traceback.print_exception(e)  # التفاصيل الكاملة في Logs بتاعة Streamlit (للمالك بس)
     glass_alert("error", 
         f"تعذر الاتصال بقاعدة البيانات ({type(e).__name__}{detail}) | نوع الرابط: {scheme}. "
         "راجع DATABASE_URL: استخدم رابط Session pooler من Supabase، "
