@@ -195,8 +195,11 @@ def get_engine():
     return create_engine(DB_URL, pool_pre_ping=True, pool_size=5, max_overflow=2, pool_recycle=300)
 
 def _db_fail(e: Exception):
+    # تفاصيل آمنة للتشخيص: اسم المكتبة الناقصة (لو موجودة) ونوع الرابط، من غير كلمة السر
+    scheme = DB_URL.split("://")[0] if "://" in DB_URL else "؟"
+    detail = f" — {e}" if isinstance(e, ModuleNotFoundError) else ""
     glass_alert("error", 
-        f"تعذر الاتصال بقاعدة البيانات ({type(e).__name__}). "
+        f"تعذر الاتصال بقاعدة البيانات ({type(e).__name__}{detail}) | نوع الرابط: {scheme}. "
         "راجع DATABASE_URL: استخدم رابط Session pooler من Supabase، "
         "وتأكد من تشفير الرموز الخاصة في كلمة السر، ومن إضافة psycopg2-binary في requirements.txt."
     )
